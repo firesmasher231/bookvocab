@@ -54,6 +54,8 @@ export async function initScanner(videoElement, onDetected, onError) {
 				"ean_reader", // EAN-13 (ISBN-13) - most common
 				"ean_8_reader", // EAN-8
 				"code_128_reader", // Some ISBN barcodes use Code 128
+				"upc_reader", // UPC-A
+				"upc_e_reader", // UPC-E
 			],
 			multiple: false,
 			debug: {
@@ -67,8 +69,10 @@ export async function initScanner(videoElement, onDetected, onError) {
 			patchSize: "medium",
 			halfSample: true,
 		},
-		numOfWorkers: navigator.hardwareConcurrency || 4,
-		frequency: 20, // Increased from 10 for faster detection
+		numOfWorkers: navigator.hardwareConcurrency
+			? Math.min(navigator.hardwareConcurrency, 2)
+			: 2,
+		frequency: 10, // 10 fps is more stable on mobile
 		locate: true,
 	};
 
@@ -83,12 +87,30 @@ export async function initScanner(videoElement, onDetected, onError) {
 				return;
 			}
 
+			console.log("[Scanner] QuaggaJS initialized successfully");
+
 			// Start scanning
 			Quagga.start();
 			isInitialized = true;
+			console.log("[Scanner] Scanner started, now detecting...");
 
 			// Set up detection handler
 			Quagga.onDetected(handleDetection);
+
+			// Add a processed handler to see what Quagga is trying to decode
+			let frameCount = 0;
+			Quagga.onProcessed((result) => {
+				frameCount++;
+				// Log every 50th frame to avoid spam
+				if (frameCount % 50 === 0) {
+					console.log(`[Scanner] Processed ${frameCount} frames...`);
+					if (result && result.boxes) {
+						console.log(
+							`[Scanner] Detected ${result.boxes.length} potential barcodes in frame`
+						);
+					}
+				}
+			});
 
 			resolve();
 		});
@@ -139,8 +161,10 @@ function handleDetection(result) {
 export function stopScanner() {
 	if (!isInitialized) return;
 
+	console.log("[Scanner] Stopping scanner");
 	Quagga.stop();
 	Quagga.offDetected(handleDetection);
+	Quagga.offProcessed();
 	isInitialized = false;
 	detectionCallback = null;
 }
