@@ -10,6 +10,8 @@ import {
 	getWordByText,
 	getAllBooks,
 	addBook,
+	getSetting,
+	setSetting,
 } from "../services/db.js";
 import { searchBooksByTitle } from "../services/books.js";
 import { fadeInUp } from "../utils/animations.js";
@@ -506,6 +508,17 @@ export function createWordInputSimple(container) {
 		// Add "Misc" option
 		dropdownMenu.appendChild(createDropdownItem("Misc", null));
 
+		// Load last selected book from settings
+		const lastSelectedBookId = await getSetting("lastSelectedBookId");
+		if (lastSelectedBookId) {
+			// Check if the book still exists
+			const bookExists = books.find((b) => b.id === lastSelectedBookId);
+			if (bookExists) {
+				selectedBookId = lastSelectedBookId;
+				await updateDropdownUI(lastSelectedBookId);
+			}
+		}
+
 		// Add separator
 		const separator1 = createElement("div", {
 			style: "height: 1px; background: rgba(0, 0, 0, 0.06); margin: 0.5rem 0;",
@@ -577,6 +590,11 @@ export function createWordInputSimple(container) {
 		// Store the bookId as-is (string UUID)
 		selectedBookId = bookId;
 
+		// Save last selected book to settings
+		if (bookId) {
+			await setSetting("lastSelectedBookId", bookId);
+		}
+
 		// Store current book title for placeholder use (needed for onload handler)
 		const bookTitle = book ? book.title : title || "Book";
 		currentBookTitle = bookTitle;
@@ -618,6 +636,7 @@ export function createWordInputSimple(container) {
 			const title = prompt("Enter book title:");
 			if (!title) {
 				selectedBookId = null;
+				await setSetting("lastSelectedBookId", null);
 				await updateDropdownUI(null);
 				return;
 			}
