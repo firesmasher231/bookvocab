@@ -321,6 +321,23 @@ export async function deleteBook(id, deleteWords = false) {
 }
 
 /**
+ * Clear all data from the database
+ * @returns {Promise<void>}
+ */
+export async function clearAllData() {
+  const db = await initDB();
+  
+  // Clear all stores
+  const tx = db.transaction(['words', 'books', 'settings'], 'readwrite');
+  await tx.objectStore('words').clear();
+  await tx.objectStore('books').clear();
+  await tx.objectStore('settings').clear();
+  await tx.done;
+  
+  console.log('All data cleared from database');
+}
+
+/**
  * Update book word count
  * @param {string} bookId - Book ID
  * @returns {Promise<void>}

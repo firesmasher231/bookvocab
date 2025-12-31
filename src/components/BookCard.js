@@ -1,7 +1,8 @@
-import { createElement, formatDate, hapticFeedback } from '../utils/helpers.js';
+import { createElement, formatDate, hapticFeedback, showToast } from '../utils/helpers.js';
 import { fadeInUp } from '../utils/animations.js';
 import { deleteBook } from '../services/db.js';
 import { appState } from '../js/state.js';
+import { createConfirmModal } from './ConfirmModal.js';
 
 /**
  * Create a book card component
@@ -27,25 +28,114 @@ export function createBookCard(bookData, options = {}) {
     className: 'flex gap-4',
   });
 
-  // Book cover
-  if (bookData.coverUrl) {
-    const coverContainer = createElement('div', {
-      className: 'flex-shrink-0',
-    });
+  // Helper to get book initials for placeholder
+  function getBookInitials(title) {
+    if (!title) return '?';
+    const words = title.trim().split(/\s+/);
+    if (words.length === 1) {
+      return words[0].substring(0, 2).toUpperCase();
+    }
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  }
 
+  // Helper to generate gradient based on title
+  function getBookPlaceholderGradient(title) {
+    if (!title) {
+      return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+    }
+    
+    let hash = 0;
+    for (let i = 0; i < title.length; i++) {
+      hash = title.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    const gradients = [
+      'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+      'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+      'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+      'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+      'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
+      'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+      'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
+      'linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%)',
+    ];
+    
+    return gradients[Math.abs(hash) % gradients.length];
+  }
+
+  // Book cover (or placeholder if cover is invalid)
+  const coverContainer = createElement('div', {
+    className: 'flex-shrink-0',
+  });
+
+  if (bookData.coverUrl) {
     const cover = createElement('img', {
       src: bookData.coverUrl,
       alt: `${bookData.title} cover`,
       className: 'w-20 h-28 object-cover rounded shadow-sm',
       onerror: (e) => {
-        // Fallback if cover fails to load
+        // Fallback if cover fails to load - show placeholder
         e.target.style.display = 'none';
+        showPlaceholder();
+      },
+      onload: (e) => {
+        // Check if it's a 1x1 placeholder image
+        if (e.target.naturalWidth <= 2 && e.target.naturalHeight <= 2) {
+          e.target.style.display = 'none';
+          showPlaceholder();
+        }
       },
     });
 
+    const placeholder = createElement('div', {
+      className: 'rounded shadow-sm',
+      style: `
+        width: 5rem;
+        height: 7rem;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: ${getBookPlaceholderGradient(bookData.title)};
+        color: white;
+        font-weight: 600;
+        font-size: 1.5rem;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      `,
+    });
+    placeholder.textContent = getBookInitials(bookData.title);
+
+    function showPlaceholder() {
+      placeholder.style.display = 'flex';
+    }
+
     coverContainer.appendChild(cover);
-    content.appendChild(coverContainer);
+    coverContainer.appendChild(placeholder);
+  } else {
+    // No coverUrl at all - show placeholder immediately
+    const placeholder = createElement('div', {
+      className: 'rounded shadow-sm',
+      style: `
+        width: 5rem;
+        height: 7rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: ${getBookPlaceholderGradient(bookData.title)};
+        color: white;
+        font-weight: 600;
+        font-size: 1.5rem;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      `,
+    });
+    placeholder.textContent = getBookInitials(bookData.title);
+    coverContainer.appendChild(placeholder);
   }
+
+  content.appendChild(coverContainer);
 
   // Book info
   const info = createElement('div', {
@@ -100,24 +190,32 @@ export function createBookCard(bookData, options = {}) {
     onClick: async (e) => {
       e.stopPropagation(); // Prevent card click
 
-      const confirmMsg = bookData.wordCount > 0
-        ? `Delete "${bookData.title}"? This will unlink ${bookData.wordCount} word(s).`
-        : `Delete "${bookData.title}"?`;
+      const message = bookData.wordCount > 0
+        ? `Are you sure you want to delete "${bookData.title}"?\n\nThis will also delete ${bookData.wordCount} word(s) associated with this book.`
+        : `Are you sure you want to delete "${bookData.title}"?`;
 
-      if (confirm(confirmMsg)) {
-        hapticFeedback('medium');
-        try {
-          await deleteBook(bookData.id, false); // Don't delete words, just unlink
-          card.style.animation = 'slideUp 0.3s ease-out reverse';
-          setTimeout(() => {
-            card.remove();
-            if (onDelete) onDelete(bookData.id);
-          }, 300);
-        } catch (error) {
-          console.error('Failed to delete book:', error);
-          alert('Failed to delete book. Please try again.');
-        }
-      }
+      createConfirmModal({
+        title: 'Delete Book',
+        message,
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        danger: true,
+        onConfirm: async () => {
+          hapticFeedback('medium');
+          try {
+            // Delete book and associated words
+            await deleteBook(bookData.id, true);
+            card.style.animation = 'slideUp 0.3s ease-out reverse';
+            setTimeout(() => {
+              card.remove();
+              if (onDelete) onDelete(bookData.id);
+            }, 300);
+          } catch (error) {
+            console.error('Failed to delete book:', error);
+            showToast('Failed to delete book. Please try again.', 'error');
+          }
+        },
+      });
     },
   });
   deleteBtn.innerHTML = `

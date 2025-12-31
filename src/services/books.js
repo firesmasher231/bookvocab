@@ -80,14 +80,32 @@ export function buildCoverUrl(isbn, size = 'M') {
 
 /**
  * Check if a cover image exists for an ISBN
+ * Open Library returns a 1x1 white pixel GIF when no cover exists
  * @param {string} isbn - ISBN number
  * @returns {Promise<boolean>}
  */
 export async function coverExists(isbn) {
   try {
     const url = buildCoverUrl(isbn, 'S');
-    const response = await fetch(url, { method: 'HEAD' });
-    return response.ok;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      return false;
+    }
+    
+    // Check Content-Length - a 1x1 white pixel GIF is typically ~35-50 bytes
+    // Real book covers are much larger (usually several KB)
+    const contentLength = response.headers.get('content-length');
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      // If smaller than 100 bytes, it's likely the placeholder
+      if (size < 100) {
+        return false;
+      }
+    }
+    
+    // If no content-length header, we'll let the image load and check dimensions in the component
+    return true;
   } catch (error) {
     return false;
   }

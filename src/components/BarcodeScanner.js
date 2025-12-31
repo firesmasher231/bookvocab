@@ -26,14 +26,11 @@ export function createBarcodeScanner(container) {
   async function show() {
     component.innerHTML = '';
 
-    // Check camera availability
-    const cameraAvailable = await isCameraAvailable();
-    if (!cameraAvailable) {
-      showToast('No camera found on this device', 'error');
-      return;
-    }
-
-    // Request permission
+    // On iOS Safari, enumerateDevices requires permission first
+    // So we skip the availability check and go straight to requesting permission
+    // The getUserMedia call will fail if there's no camera
+    
+    // Request permission (this also checks availability on iOS)
     const hasPermission = await requestCameraPermission();
     if (!hasPermission) {
       showCameraPermissionError();
@@ -60,6 +57,12 @@ export function createBarcodeScanner(container) {
       'aria-label': 'Close scanner',
       onClick: () => {
         hapticFeedback('light');
+        // Stop camera immediately when dismissed
+        if (scannerActive) {
+          stopScanner();
+          scannerActive = false;
+          appState.set('scannerActive', false);
+        }
         hide();
       },
     });
@@ -215,6 +218,13 @@ export function createBarcodeScanner(container) {
       showToast(`Added: ${savedBook.title}`);
       status.innerHTML = `<span class="text-success">Added: ${savedBook.title}</span>`;
 
+      // Stop camera immediately
+      if (scannerActive) {
+        stopScanner();
+        scannerActive = false;
+        appState.set('scannerActive', false);
+      }
+
       // Close scanner after 1.5 seconds
       setTimeout(() => {
         hide();
@@ -265,6 +275,13 @@ export function createBarcodeScanner(container) {
 
       showToast(`Added: ${savedBook.title}`);
       status.innerHTML = `<span class="text-success">Added: ${savedBook.title}</span>`;
+
+      // Stop camera immediately
+      if (scannerActive) {
+        stopScanner();
+        scannerActive = false;
+        appState.set('scannerActive', false);
+      }
 
       // Close scanner after 1.5 seconds
       setTimeout(() => {
@@ -334,12 +351,35 @@ export function createBarcodeScanner(container) {
 
     const title = createElement('h3', {
       className: 'text-lg font-semibold text-gray-900 mb-2',
-    }, 'Camera Access Denied');
+    }, 'Camera Access Required');
     errorCard.appendChild(title);
 
     const message = createElement('p', {
       className: 'text-gray-600 mb-4',
-    }, 'Please allow camera access in your browser settings to scan book barcodes.');
+      style: 'line-height: 1.6;',
+    });
+    
+    // Provide iOS-specific instructions
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isHTTPS = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+    
+    if (!isHTTPS) {
+      message.innerHTML = `
+        <strong>HTTPS Required:</strong><br>
+        Camera access requires a secure connection (HTTPS).<br>
+        The app will only work on localhost or HTTPS domains.
+      `;
+    } else if (isIOS) {
+      message.innerHTML = `
+        <strong>On iOS Safari:</strong><br>
+        1. Tap the camera icon when prompted<br>
+        2. Or go to Settings → Safari → Camera<br>
+        3. Select "Ask" or "Allow"<br>
+        4. Reload this page and try again
+      `;
+    } else {
+      message.textContent = 'Please allow camera access when prompted, or check your browser settings. You may need to reload the page after granting permission.';
+    }
     errorCard.appendChild(message);
 
     const closeBtn = createElement('button', {

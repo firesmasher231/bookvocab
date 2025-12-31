@@ -112,6 +112,104 @@
     transform: scale(0.98);
   }
 
+  /* Secondary button */
+  .btn-secondary {
+    padding: 0.875rem 1.5rem;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1.5px solid rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    letter-spacing: -0.011em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 48px;
+    color: #525252;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  /* Danger button */
+  .btn-danger {
+    padding: 0.875rem 1.5rem;
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1.5px solid rgba(255, 107, 107, 0.3);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    letter-spacing: -0.011em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 48px;
+    color: white;
+    box-shadow: 0 4px 12px rgba(255, 107, 107, 0.25);
+  }
+
+  .btn-danger:hover {
+    background: linear-gradient(135deg, #ff5252 0%, #e04856 100%);
+    box-shadow: 0 6px 20px rgba(255, 107, 107, 0.35);
+    transform: translateY(-1px);
+  }
+
+  .btn-danger:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  /* Modal animations */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fadeOut {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes scaleOut {
+    from {
+      opacity: 1;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+  }
+
   /* Glassmorphism input */
   .input-field {
     width: 100%;

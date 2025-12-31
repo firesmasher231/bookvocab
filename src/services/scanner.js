@@ -138,12 +138,25 @@ export function isScannerActive() {
  */
 export async function requestCameraPermission() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    // Request video with mobile-friendly constraints
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        facingMode: 'environment' // Prefer back camera on mobile
+      } 
+    });
     // Stop the stream immediately, we just wanted to check permission
     stream.getTracks().forEach(track => track.stop());
     return true;
   } catch (error) {
     console.error('Camera permission error:', error);
+    // Check specific error types
+    if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+      console.error('No camera device found');
+    } else if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+      console.error('Camera permission denied');
+    } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+      console.error('Camera already in use');
+    }
     return false;
   }
 }

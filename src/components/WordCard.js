@@ -1,7 +1,8 @@
 import { fadeInUp } from '../utils/animations.js';
-import { createElement, formatDate, hapticFeedback } from '../utils/helpers.js';
+import { createElement, formatDate, hapticFeedback, showToast } from '../utils/helpers.js';
 import { deleteWord } from '../services/db.js';
 import { appState } from '../js/state.js';
+import { createConfirmModal } from './ConfirmModal.js';
 
 /**
  * Create a word card component
@@ -67,20 +68,27 @@ export function createWordCard(wordData, options = {}) {
     className: 'p-2 text-gray-400 hover:text-error transition-colors',
     'aria-label': 'Delete word',
     onClick: async () => {
-      if (confirm(`Delete "${wordData.word}"?`)) {
-        hapticFeedback('medium');
-        try {
-          await deleteWord(wordData.id);
-          card.style.animation = 'slideUp 0.3s ease-out reverse';
-          setTimeout(() => {
-            card.remove();
-            if (onDelete) onDelete(wordData.id);
-          }, 300);
-        } catch (error) {
-          console.error('Failed to delete word:', error);
-          alert('Failed to delete word. Please try again.');
-        }
-      }
+      createConfirmModal({
+        title: 'Delete Word',
+        message: `Are you sure you want to delete "${wordData.word}"?`,
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        danger: true,
+        onConfirm: async () => {
+          hapticFeedback('medium');
+          try {
+            await deleteWord(wordData.id);
+            card.style.animation = 'slideUp 0.3s ease-out reverse';
+            setTimeout(() => {
+              card.remove();
+              if (onDelete) onDelete(wordData.id);
+            }, 300);
+          } catch (error) {
+            console.error('Failed to delete word:', error);
+            showToast('Failed to delete word. Please try again.', 'error');
+          }
+        },
+      });
     },
   });
   deleteBtn.innerHTML = `

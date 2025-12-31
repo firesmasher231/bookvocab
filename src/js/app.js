@@ -162,10 +162,47 @@ async function renderLibraryView(container) {
     className: 'mb-6',
   });
 
+  const titleRow = createElement('div', {
+    className: 'flex justify-between items-center mb-4',
+  });
+
   const title = createElement('h2', {
-    className: 'text-2xl font-semibold text-gray-900 mb-4',
+    className: 'text-2xl font-semibold text-gray-900',
   }, 'My Library');
-  header.appendChild(title);
+  titleRow.appendChild(title);
+
+  // Clear all button
+  const clearBtn = createElement('button', {
+    className: 'btn-danger',
+    style: 'padding: 0.625rem 1rem; min-height: auto; font-size: 0.875rem;',
+    onClick: async () => {
+      const { createConfirmModal } = await import('../components/ConfirmModal.js');
+      const { clearAllData } = await import('../services/db.js');
+      
+      createConfirmModal({
+        title: 'Clear All Data',
+        message: 'Are you sure you want to delete ALL words and books? This action cannot be undone.',
+        confirmText: 'Delete Everything',
+        cancelText: 'Cancel',
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await clearAllData();
+            showToast('All data cleared', 'success');
+            // Refresh the view
+            if (window.refreshWordList) window.refreshWordList();
+            if (window.refreshBooksList) window.refreshBooksList();
+          } catch (error) {
+            console.error('Failed to clear data:', error);
+            showToast('Failed to clear data', 'error');
+          }
+        },
+      });
+    },
+  }, 'Clear All');
+  titleRow.appendChild(clearBtn);
+
+  header.appendChild(titleRow);
 
   // Filter by book dropdown
   const books = await getAllBooks();
