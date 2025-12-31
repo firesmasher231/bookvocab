@@ -144,9 +144,20 @@ export function createBarcodeScanner(container) {
     const status = createElement('div', {
       id: 'scanner-status',
       className: 'text-center text-sm',
+      style: 'min-height: 1.5rem;',
     });
     status.innerHTML = '<span class="text-gray-500">Initializing camera...</span>';
     scannerCard.appendChild(status);
+
+    // Tips
+    const tips = createElement('div', {
+      className: 'text-xs text-gray-500 text-center mt-2',
+      style: 'line-height: 1.4;',
+    });
+    tips.innerHTML = `
+      <strong>Tips:</strong> Hold steady, ensure good lighting, and keep barcode flat & in focus
+    `;
+    scannerCard.appendChild(tips);
 
     component.appendChild(scannerCard);
     container.appendChild(component);
@@ -155,8 +166,10 @@ export function createBarcodeScanner(container) {
 
     // Initialize scanner
     try {
+      // Get the actual video container element (not the wrapper)
+      const videoElement = document.getElementById('scanner-video-container');
       await initScanner(
-        videoContainer,
+        videoElement,
         handleBarcodeDetected,
         handleScannerError
       );
