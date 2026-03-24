@@ -241,6 +241,19 @@ async function renderLibraryView(container) {
 
   container.appendChild(header);
 
+  // Search bar for library
+  const searchContainer = createElement('div', {
+    className: 'mb-4',
+  });
+  const searchInput = createElement('input', {
+    type: 'text',
+    placeholder: 'Search your library...',
+    className: 'input-field',
+    style: 'width: 100%;',
+  });
+  searchContainer.appendChild(searchInput);
+  container.appendChild(searchContainer);
+
   // Word list
   const listContainer = createElement('div', {
     id: 'library-word-list',
@@ -249,10 +262,30 @@ async function renderLibraryView(container) {
 
   wordListComponent = createWordList(listContainer);
 
+  // Wire up library search
+  let searchTimeout = null;
+  searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    const query = e.target.value.trim();
+    searchTimeout = setTimeout(() => {
+      if (query) {
+        wordListComponent.search(query);
+      } else {
+        const bookId = appState.get('currentBook');
+        wordListComponent.render(bookId ? { bookId } : {});
+      }
+    }, 300);
+  });
+
   // Global function for refreshing
   window.refreshWordList = () => {
     if (wordListComponent) {
-      wordListComponent.render();
+      const query = searchInput.value.trim();
+      if (query) {
+        wordListComponent.search(query);
+      } else {
+        wordListComponent.render();
+      }
     }
   };
 }

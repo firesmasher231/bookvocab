@@ -94,6 +94,22 @@ export function createSimpleWordList(container, limit = 10) {
     });
     dateText.textContent = formatDate(wordData.dateAdded);
 
+    // Search count badge if looked up multiple times
+    if (wordData.searchCount && wordData.searchCount > 1) {
+      const countBadge = createElement('span', {
+        style: `
+          font-size: 0.6875rem;
+          color: #737373;
+          background: rgba(0, 0, 0, 0.05);
+          padding: 0.125rem 0.5rem;
+          border-radius: 10px;
+          white-space: nowrap;
+        `,
+      });
+      countBadge.textContent = `×${wordData.searchCount}`;
+      rightSide.appendChild(countBadge);
+    }
+
     // Delete button
     const deleteBtn = createElement('button', {
       style: `

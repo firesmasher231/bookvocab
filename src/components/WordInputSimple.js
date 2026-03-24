@@ -8,6 +8,7 @@ import { lookupWord } from "../services/dictionary.js";
 import {
 	addWord,
 	getWordByText,
+	updateWord,
 	getAllBooks,
 	addBook,
 	getSetting,
@@ -808,23 +809,27 @@ export function createWordInputSimple(container) {
 			// Check if word already exists
 			const existing = await getWordByText(result.word);
 
+			// Always show the definition
+			status.textContent = "";
+			lastSearchedWord = cleanQuery;
+			displayResult(result);
+
 			if (existing) {
-				status.textContent = "Already in your library";
-				lastSearchedWord = cleanQuery;
+				// Increment search count for tracking repeat lookups
+				const newCount = (existing.searchCount || 1) + 1;
+				await updateWord(existing.id, { searchCount: newCount });
+				status.textContent = `Already in your library (looked up ${newCount} times)`;
 
 				// Clear input after a moment
 				setTimeout(() => {
 					input.value = "";
 					status.textContent = "";
 					lastSearchedWord = "";
-				}, 2000);
+				}, 2500);
+
+				if (window.refreshWordList) window.refreshWordList();
 				return;
 			}
-
-			// Display the result first
-			status.textContent = "";
-			lastSearchedWord = cleanQuery;
-			displayResult(result);
 
 			// Auto-save the word with book association
 			const wordToSave = {
@@ -833,13 +838,14 @@ export function createWordInputSimple(container) {
 				phonetic: result.phonetic,
 				audioUrl: result.audioUrl,
 				bookId: selectedBookId,
+				searchCount: 1,
 			};
 
 			await addWord(wordToSave);
 			hapticFeedback("medium");
 
 			// Show saved status
-			status.textContent = `✓ Saved "${result.word}"`;
+			status.textContent = `Saved "${result.word}"`;
 
 			// Clear the input to allow new search
 			setTimeout(() => {

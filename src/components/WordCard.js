@@ -168,8 +168,20 @@ export function createWordCard(wordData, options = {}) {
     footer.appendChild(createElement('span', {}, ''));
   }
 
+  const rightInfo = createElement('span', {
+    className: 'flex items-center gap-2',
+  });
+
+  if (wordData.searchCount && wordData.searchCount > 1) {
+    const countBadge = createElement('span', {
+      style: 'background: rgba(0,0,0,0.05); padding: 0.125rem 0.5rem; border-radius: 10px;',
+    }, `Looked up ${wordData.searchCount}×`);
+    rightInfo.appendChild(countBadge);
+  }
+
   const dateEl = createElement('span', {}, formatDate(wordData.dateAdded));
-  footer.appendChild(dateEl);
+  rightInfo.appendChild(dateEl);
+  footer.appendChild(rightInfo);
 
   card.appendChild(footer);
 

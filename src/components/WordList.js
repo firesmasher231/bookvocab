@@ -119,8 +119,12 @@ export function createWordList(container) {
     }
 
     const allWords = await getAllWords();
+    const lowerQuery = query.toLowerCase();
     const filtered = allWords.filter(word =>
-      word.word.toLowerCase().includes(query.toLowerCase())
+      word.word.toLowerCase().includes(lowerQuery) ||
+      (word.definitions && word.definitions.some(def =>
+        def.definition && def.definition.toLowerCase().includes(lowerQuery)
+      ))
     );
 
     component.innerHTML = '';

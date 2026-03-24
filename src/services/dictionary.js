@@ -39,11 +39,43 @@ function buildAudioUrl(audioFile) {
 }
 
 /**
+ * Clean Merriam-Webster markup from text
+ * Handles {bc}, {it}...{/it}, {sx|word||}, {a_link|word}, {d_link|word|id},
+ * {ldquo}, {rdquo}, and other MW-specific markers
+ * @param {string} text - Raw text with MW markup
+ * @returns {string}
+ */
+function cleanMWMarkup(text) {
+	if (!text) return "";
+	return text
+		.replace(/\{bc\}/g, ": ")                          // bold colon → ": "
+		.replace(/\{ldquo\}/g, "\u201C")                   // left double quote
+		.replace(/\{rdquo\}/g, "\u201D")                   // right double quote
+		.replace(/\{it\}(.*?)\{\/it\}/g, "$1")             // italic → keep text
+		.replace(/\{b\}(.*?)\{\/b\}/g, "$1")               // bold → keep text
+		.replace(/\{inf\}(.*?)\{\/inf\}/g, "$1")           // subscript → keep text
+		.replace(/\{sup\}(.*?)\{\/sup\}/g, "$1")           // superscript → keep text
+		.replace(/\{sx\|([^|]*)\|[^}]*\}/g, "$1")          // cross-ref → keep word
+		.replace(/\{a_link\|([^}]+)\}/g, "$1")             // auto link → keep word
+		.replace(/\{d_link\|([^|]+)\|[^}]*\}/g, "$1")      // definition link → keep word
+		.replace(/\{DRB\}/g, "")                           // definition reference block
+		.replace(/\{\/DRB\}/g, "")
+		.replace(/\{ma\}(.*?)\{\/ma\}/g, "$1")             // more at → keep text
+		.replace(/\{wi\}(.*?)\{\/wi\}/g, "$1")             // word in italic → keep text
+		.replace(/\{phrase\}(.*?)\{\/phrase\}/g, "$1")      // phrase → keep text
+		.replace(/\{qword\}(.*?)\{\/qword\}/g, "$1")       // query word → keep text
+		.replace(/\{gloss\}(.*?)\{\/gloss\}/g, "$1")       // gloss → keep text
+		.replace(/\{parahw\}(.*?)\{\/parahw\}/g, "$1")     // paragraph headword → keep text
+		.replace(/\{[^}]+\}/g, "")                         // catch-all for any remaining markers
+		.trim();
+}
+
+/**
  * Parse full definitions from API response
  * @param {Array} defArray - Definitions array from API
  * @returns {Array}
  */
-function parseFullDefinitions(defArray) {
+function parseFullDefinitions(defArray, fallbackPartOfSpeech = "") {
 	if (!defArray || !Array.isArray(defArray)) return [];
 
 	const definitions = [];
@@ -58,11 +90,10 @@ function parseFullDefinitions(defArray) {
 					if (dt && Array.isArray(dt)) {
 						dt.forEach((defItem) => {
 							if (defItem[0] === "text") {
-								// Clean up the definition text (remove special markers)
-								const cleanText = defItem[1].replace(/\{[^}]+\}/g, "").trim();
+								const cleanText = cleanMWMarkup(defItem[1]);
 								if (cleanText) {
 									definitions.push({
-										partOfSpeech: defSection.vd || "",
+										partOfSpeech: defSection.vd || fallbackPartOfSpeech,
 										definition: cleanText,
 										examples: [],
 									});
@@ -72,7 +103,7 @@ function parseFullDefinitions(defArray) {
 								const examples = defItem[1]
 									.map((ex) => {
 										if (ex.t) {
-											return ex.t.replace(/\{[^}]+\}/g, "").trim();
+											return cleanMWMarkup(ex.t);
 										}
 										return "";
 									})
@@ -156,11 +187,11 @@ export async function lookupWord(word) {
 		// Get simplified definitions
 		const shortDefs = entry.shortdef || [];
 
-		// Get full definitions with examples
-		const fullDefs = parseFullDefinitions(entry.def);
-
 		// Get functional label (part of speech)
 		const partOfSpeech = entry.fl || "";
+
+		// Get full definitions with examples
+		const fullDefs = parseFullDefinitions(entry.def, partOfSpeech);
 
 		// Format definitions array
 		const definitions =
