@@ -184,24 +184,27 @@ export async function lookupWord(word) {
 		const audioFile = entry.hwi?.prs?.[0]?.sound?.audio;
 		const audioUrl = buildAudioUrl(audioFile);
 
-		// Get simplified definitions
-		const shortDefs = entry.shortdef || [];
-
 		// Get functional label (part of speech)
 		const partOfSpeech = entry.fl || "";
 
-		// Get full definitions with examples
+		// Get simplified definitions (cleaner, more concise)
+		const shortDefs = entry.shortdef || [];
+
+		// Get full definitions for examples only
 		const fullDefs = parseFullDefinitions(entry.def, partOfSpeech);
 
-		// Format definitions array
-		const definitions =
-			fullDefs.length > 0
-				? fullDefs
-				: shortDefs.map((def) => ({
-						partOfSpeech: partOfSpeech,
-						definition: def,
-						examples: [],
-				  }));
+		// Prefer short definitions — they're cleaner and more readable
+		// Attach examples from full definitions when available
+		let definitions;
+		if (shortDefs.length > 0) {
+			definitions = shortDefs.map((def, i) => ({
+				partOfSpeech: partOfSpeech,
+				definition: def,
+				examples: fullDefs[i]?.examples || [],
+			}));
+		} else {
+			definitions = fullDefs;
+		}
 
 		return {
 			found: true,
