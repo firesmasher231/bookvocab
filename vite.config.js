@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-// GitHub Pages serves project sites from https://<user>.github.io/<repo>/,
-// so every built URL must be prefixed with the repo name. Override with
-// BASE_PATH=/ when deploying to a domain root instead.
-const base = process.env.BASE_PATH || '/bookvocab/';
+// The site is served from the root of its custom domain
+// (https://bookvocab.adityajoshi.cc/), so assets live at /. Set
+// BASE_PATH=/bookvocab/ to serve from https://<user>.github.io/bookvocab/
+// instead (that only applies if the custom domain is removed).
+const base = process.env.BASE_PATH || '/';
 
 export default defineConfig({
   base,

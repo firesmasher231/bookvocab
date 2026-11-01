@@ -100,10 +100,8 @@ The built files will be in the `dist/` directory.
 
 1. Connect your repository to Vercel
 2. Framework preset: Vite
-3. Override the build command with `BASE_PATH=/ npm run build` (these hosts
-   serve from a domain root, not the `/bookvocab/` sub-path)
-4. Add environment variable: `VITE_MW_API_KEY` with your API key
-5. Deploy!
+3. Deploy! (Add your dictionary key in the app's ⚙ Settings. Don't set
+   `VITE_MW_API_KEY` on a public host, or it gets baked into the bundle.)
 
 ### Option 3: GitHub Pages (current setup)
 
@@ -111,13 +109,11 @@ Pushes to `main` are built and published automatically by
 `.github/workflows/static.yml`. In the repository settings, **Pages > Build and
 deployment > Source** must be set to **GitHub Actions**.
 
-The site is served from <https://firesmasher231.github.io/bookvocab/>.
-
-Because that is a project site rather than a domain root, `vite.config.js` sets
-`base: '/bookvocab/'` so the bundle, manifest, icons, and service worker are all
-requested under the `/bookvocab/` prefix. Without it every asset resolves to
-`https://firesmasher231.github.io/...` and the page 404s. If you rename the
-repository, update that base path to match the new name.
+The site is served from the custom domain <https://bookvocab.adityajoshi.cc/>
+(set under **Pages > Custom domain**), so `vite.config.js` builds with
+`base: '/'`. If the custom domain is ever removed, the site moves to
+`https://firesmasher231.github.io/bookvocab/` and needs
+`BASE_PATH=/bookvocab/` in the workflow's build step.
 
 **Note**: For PWA features to work, you must deploy to HTTPS.
 
