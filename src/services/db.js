@@ -211,6 +211,15 @@ export async function searchWords(query) {
  * @param {Object} bookData - Book data
  * @returns {Promise<Object>}
  */
+/**
+ * Tell listeners (the book switcher) that the set of books changed.
+ */
+function notifyBooksChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('books-changed'));
+  }
+}
+
 export async function addBook(bookData) {
   const db = await initDB();
 
@@ -235,6 +244,7 @@ export async function addBook(bookData) {
   };
 
   await db.add('books', book);
+  notifyBooksChanged();
   return book;
 }
 
@@ -318,6 +328,7 @@ export async function deleteBook(id, deleteWords = false) {
   }
 
   await db.delete('books', id);
+  notifyBooksChanged();
 }
 
 /**
@@ -335,6 +346,7 @@ export async function clearAllData() {
   await tx.done;
   
   console.log('All data cleared from database');
+  notifyBooksChanged();
 }
 
 /**

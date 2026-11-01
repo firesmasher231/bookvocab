@@ -6,6 +6,7 @@ import { createSimpleWordList } from '../components/SimpleWordList.js';
 import { createWordList } from '../components/WordList.js';
 import { createBookCard } from '../components/BookCard.js';
 import { createBarcodeScanner } from '../components/BarcodeScanner.js';
+import { initActiveBook } from './activeBook.js';
 import { createElement, showToast } from '../utils/helpers.js';
 import { fadeInUp, pageTransition, staggerChildren } from '../utils/animations.js';
 
@@ -23,6 +24,7 @@ export async function initApp() {
   try {
     // Initialize database
     await initDB();
+    await initActiveBook();
 
     // Create main container
     const container = createElement('div', {
@@ -261,6 +263,17 @@ async function renderLibraryView(container) {
   container.appendChild(listContainer);
 
   wordListComponent = createWordList(listContainer);
+
+  // Settings are set-and-forget, so they live quietly at the bottom here
+  const settingsLink = createElement('button', {
+    type: 'button',
+    className: 'settings-link',
+    onClick: async () => {
+      const { openSettingsModal } = await import('../components/SettingsModal.js');
+      openSettingsModal();
+    },
+  }, 'Settings');
+  container.appendChild(settingsLink);
 
   // Wire up library search
   let searchTimeout = null;

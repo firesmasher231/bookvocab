@@ -9,6 +9,7 @@ import { fetchBookByISBN } from "../services/books.js";
 import { addBook } from "../services/db.js";
 import { fadeInUp, fadeOutDown } from "../utils/animations.js";
 import { appState } from "../js/state.js";
+import { setActiveBook } from "../js/activeBook.js";
 
 /**
  * Create barcode scanner component
@@ -317,6 +318,11 @@ export function createBarcodeScanner(container) {
 		}
 
 		component.innerHTML = "";
+
+		// Opened from the book switcher: go back to search once done
+		if (appState.get("currentView") === "scanner") {
+			appState.set("currentView", "home");
+		}
 	}
 
 	/**
@@ -342,6 +348,8 @@ export function createBarcodeScanner(container) {
 
 			// Add book to database
 			const savedBook = await addBook(bookData);
+			// A freshly scanned book is almost always the one being read now
+			await setActiveBook(savedBook.id);
 
 			showToast(`Added: ${savedBook.title}`);
 			status.innerHTML = `<span class="text-success">Added: ${savedBook.title}</span>`;
@@ -438,6 +446,8 @@ export function createBarcodeScanner(container) {
 
 			// Add book to database
 			const savedBook = await addBook(bookData);
+			// A freshly scanned book is almost always the one being read now
+			await setActiveBook(savedBook.id);
 
 			showToast(`Added: ${savedBook.title}`);
 			status.innerHTML = `<span class="text-success">Added: ${savedBook.title}</span>`;
