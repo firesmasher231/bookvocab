@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookvocab-v2';
+const CACHE_NAME = 'bookvocab-v3';
 // The service worker lives next to index.html, so its own URL gives us the
 // deployment base path (e.g. '/bookvocab/' on GitHub Pages project sites).
 const BASE_PATH = new URL('./', self.location.href).pathname;
@@ -87,7 +87,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets - Cache First with Network Fallback
+  // Pages (index.html, the manifest, sw-adjacent files) - Network First, so a
+  // new deploy shows up on the next visit; the cache is only an offline backup.
+  const isHashedAsset = url.pathname.startsWith(`${BASE_PATH}assets/`);
+  if (request.mode === 'navigate' || !isHashedAsset) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok && request.method === 'GET') {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(request).then(
+            (cached) => cached || caches.match(`${BASE_PATH}index.html`)
+          )
+        )
+    );
+    return;
+  }
+
+  // Hashed build assets never change - Cache First with Network Fallback
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) {
@@ -95,7 +117,6 @@ self.addEventListener('fetch', (event) => {
       }
 
       return fetch(request).then((response) => {
-        // Cache successful responses
         if (response.ok && request.method === 'GET') {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {

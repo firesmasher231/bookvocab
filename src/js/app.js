@@ -5,14 +5,14 @@ import { createWordInputSimple } from '../components/WordInputSimple.js';
 import { createSimpleWordList } from '../components/SimpleWordList.js';
 import { createWordList } from '../components/WordList.js';
 import { createBookCard } from '../components/BookCard.js';
-import { createBarcodeScanner } from '../components/BarcodeScanner.js';
+import { openScanner } from '../components/BarcodeScanner.js';
 import { initActiveBook } from './activeBook.js';
+import { backfillCovers } from '../services/covers.js';
 import { createElement, showToast } from '../utils/helpers.js';
 import { fadeInUp, pageTransition, staggerChildren } from '../utils/animations.js';
 
 let wordInputComponent = null;
 let wordListComponent = null;
-let barcodeScanner = null;
 
 /**
  * Initialize the application
@@ -53,6 +53,9 @@ export async function initApp() {
     });
 
     console.log('App initialized successfully');
+
+    // Find covers for books saved without one (runs quietly in the background)
+    setTimeout(backfillCovers, 1500);
 
   } catch (error) {
     console.error('App initialization failed:', error);
@@ -319,10 +322,7 @@ async function renderBooksView(container) {
   const scanBtn = createElement('button', {
     className: 'btn-primary',
     onClick: () => {
-      if (!barcodeScanner) {
-        barcodeScanner = createBarcodeScanner(container);
-      }
-      barcodeScanner.show();
+      openScanner();
     },
   });
   scanBtn.innerHTML = `
@@ -414,8 +414,7 @@ async function renderBooksList(container) {
  * Render scanner view
  */
 async function renderScannerView(container) {
-  if (!barcodeScanner) {
-    barcodeScanner = createBarcodeScanner(container);
-  }
-  barcodeScanner.show();
+  // The scanner is a full-screen modal now; show Books underneath it.
+  await renderBooksView(container);
+  openScanner();
 }

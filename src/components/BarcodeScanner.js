@@ -2,589 +2,413 @@ import { createElement, hapticFeedback, showToast } from "../utils/helpers.js";
 import {
 	initScanner,
 	stopScanner,
-	isCameraAvailable,
 	decodeImageFile,
+	normalizeIsbn,
 } from "../services/scanner.js";
-import { fetchBookByISBN } from "../services/books.js";
-import { addBook } from "../services/db.js";
-import { fadeInUp, fadeOutDown } from "../utils/animations.js";
-import { appState } from "../js/state.js";
+import { fetchBookByISBN, formatISBN } from "../services/books.js";
+import { addBook, getBookByISBN } from "../services/db.js";
 import { setActiveBook } from "../js/activeBook.js";
 
-/**
- * Create barcode scanner component
- * @param {HTMLElement} container - Container element
- * @returns {Object} - Component interface
+/*
+ * Full-screen barcode scanner.
+ *
+ *   scan    -> live camera fills the screen, glass controls float on top
+ *   lookup  -> barcode found, fetching the book
+ *   confirm -> cover art fills the screen, details overlaid on a gradient,
+ *              "Add this book" / "Scan again"
+ *   missing -> ISBN read but no book found
  */
-export function createBarcodeScanner(container) {
-	let scannerActive = false;
-	let lastScannedISBN = null;
-	let scanTimeout = null;
 
-	const component = createElement("div", {
-		className: "barcode-scanner-container",
-		id: "barcode-scanner",
+let current = null; // the open scanner, if any
+
+const ICON = {
+	close: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>`,
+	photo: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/></svg>`,
+	keyboard: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg>`,
+	back: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>`,
+};
+
+/**
+ * Open the full-screen scanner.
+ * @param {Object} [options]
+ * @param {Function} [options.onAdded] - Called with the saved book
+ */
+export function openScanner(options = {}) {
+	if (current) return current;
+
+	const root = createElement("div", {
+		className: "scanner-modal",
+		role: "dialog",
+		"aria-modal": "true",
+		"aria-label": "Scan a book barcode",
 	});
+	const prevOverflow = document.body.style.overflow;
+	document.body.style.overflow = "hidden";
 
-	/**
-	 * Show scanner
-	 */
-	async function show() {
-		component.innerHTML = "";
+	let liveRunning = false;
+	let busy = false;
+	let closed = false;
 
-		// Camera permission is requested only when the live scanner is opened,
-		// so photo upload and manual entry work even without camera access.
+	/* ---------- Scan screen ---------- */
 
-		// Create scanner UI
-		const scannerCard = createElement("div", {
-			className: "card relative overflow-hidden",
-		});
+	const scanScreen = createElement("div", { className: "scan-screen" });
 
-		// Header
-		const header = createElement("div", {
-			className: "flex justify-between items-center mb-4",
-		});
+	const feed = createElement("div", {
+		className: "scan-feed",
+		id: "scanner-video-container",
+	});
+	scanScreen.appendChild(feed);
 
-		const title = createElement(
-			"h3",
-			{
-				className: "text-lg font-semibold text-gray-900",
-			},
-			"Scan Book Barcode"
-		);
-		header.appendChild(title);
+	const shade = createElement("div", { className: "scan-shade", "aria-hidden": "true" });
+	const frame = createElement("div", { className: "scan-frame" });
+	frame.appendChild(createElement("div", { className: "scan-line" }));
+	shade.appendChild(frame);
+	scanScreen.appendChild(shade);
 
-		const closeBtn = createElement("button", {
-			className: "p-2 text-gray-600 hover:text-gray-900 transition-colors",
-			"aria-label": "Close scanner",
-			onClick: () => {
-				hapticFeedback("light");
-				// Stop camera immediately when dismissed
-				if (scannerActive) {
-					stopScanner();
-					scannerActive = false;
-					appState.set("scannerActive", false);
-				}
-				hide();
-			},
-		});
-		closeBtn.innerHTML = `
-      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    `;
-		header.appendChild(closeBtn);
+	const top = createElement("div", { className: "scan-top" });
+	const closeBtn = createElement("button", {
+		type: "button",
+		className: "glass-btn glass-icon",
+		"aria-label": "Close scanner",
+		onClick: () => close(),
+	});
+	closeBtn.innerHTML = ICON.close;
+	top.appendChild(closeBtn);
+	top.appendChild(createElement("div", { className: "glass-chip scan-title" }, "Scan a book"));
+	top.appendChild(createElement("div", { style: "width: 44px;" }));
+	scanScreen.appendChild(top);
 
-		scannerCard.appendChild(header);
+	const hint = createElement(
+		"div",
+		{ className: "glass-chip scan-hint", role: "status", "aria-live": "polite" },
+		"Starting camera…"
+	);
+	scanScreen.appendChild(hint);
 
-		// Video container - MUST be a direct container for QuaggaJS (hidden by default)
-		const videoContainer = createElement("div", {
-			id: "scanner-video-container",
-			className: "relative bg-black rounded-lg overflow-hidden mb-4",
-			style: "min-height: 300px; width: 100%; display: none;",
-		});
+	const bottom = createElement("div", { className: "scan-bottom" });
 
-		scannerCard.appendChild(videoContainer);
-
-		// Overlay guide (added separately to avoid interfering with Quagga)
-		const overlay = createElement("div", {
-			className: "absolute pointer-events-none",
-			style: `
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 80%;
-        height: 60%;
-        border: 3px solid rgba(67, 233, 123, 0.8);
-        border-radius: 12px;
-        z-index: 10;
-      `,
-		});
-		videoContainer.appendChild(overlay);
-
-		// Instructions (hidden by default)
-		const instructions = createElement(
-			"p",
-			{
-				className: "text-sm text-gray-600 text-center mb-4",
-				style: "display: none;",
-			},
-			"Position the barcode within the frame"
-		);
-		scannerCard.appendChild(instructions);
-
-		// Image upload section (Primary option)
-		const uploadSection = createElement("div", {
-			className: "mb-4",
-			style:
-				"border-top: 1px solid rgba(0, 0, 0, 0.06); padding-top: 1rem; margin-top: 1rem;",
-		});
-
-		const uploadLabel = createElement(
-			"p",
-			{
-				className: "text-sm font-medium text-gray-700 text-center mb-2",
-			},
-			"📸 Or upload a photo of the barcode:"
-		);
-		uploadSection.appendChild(uploadLabel);
-
-		const uploadBtn = createElement(
-			"button",
-			{
-				className: "btn-primary",
-				style: "width: 100%; padding: 1rem; font-size: 1rem;",
-				onClick: () => fileInput.click(),
-			},
-			"📷 Upload Image"
-		);
-
-		const fileInput = createElement("input", {
-			type: "file",
-			accept: "image/*",
-			// Removed capture attribute - let user choose between camera or gallery
-			style: "display: none;",
-			onChange: async (e) => {
-				const file = e.target.files[0];
-				if (file) {
-					await handleImageUpload(file);
-				}
-			},
-		});
-
-		uploadSection.appendChild(fileInput);
-		uploadSection.appendChild(uploadBtn);
-		scannerCard.appendChild(uploadSection);
-
-		// Toggle for live scanner
-		const toggleLiveScanner = createElement(
-			"button",
-			{
-				className: "text-sm text-primary text-center w-full mt-2 underline",
-				style:
-					"background: none; border: none; cursor: pointer; padding: 0.5rem;",
-				onClick: () => {
-					const isHidden = videoContainer.style.display === "none";
-					videoContainer.style.display = isHidden ? "block" : "none";
-					instructions.style.display = isHidden ? "block" : "none";
-					toggleLiveScanner.textContent = isHidden
-						? "📸 Use photo upload instead"
-						: "📹 Use live scanner instead";
-
-					if (isHidden && !scannerActive) {
-						// Initialize scanner when showing
-						initializeLiveScanner();
-					} else if (!isHidden && scannerActive) {
-						// Stop scanner when hiding
-						stopScanner();
-						scannerActive = false;
-						appState.set("scannerActive", false);
-					}
-				},
-			},
-			"📹 Use live scanner instead"
-		);
-		uploadSection.appendChild(toggleLiveScanner);
-
-		// Manual entry section
-		const manualEntry = createElement("div", {
-			className: "mb-4",
-			style:
-				"border-top: 1px solid rgba(0, 0, 0, 0.06); padding-top: 1rem; margin-top: 1rem;",
-		});
-
-		const manualLabel = createElement(
-			"p",
-			{
-				className: "text-sm text-gray-600 text-center mb-2",
-			},
-			"Or enter ISBN:"
-		);
-		manualEntry.appendChild(manualLabel);
-
-		const manualInputWrapper = createElement("div", {
-			style: "display: flex; gap: 0.5rem; align-items: center;",
-		});
-
-		const isbnInput = createElement("input", {
-			type: "text",
-			placeholder: "978-0-123456-78-9",
-			className: "input-field",
-			style: "flex: 1; text-align: center; font-size: 0.9375rem;",
-		});
-
-		const submitBtn = createElement(
-			"button",
-			{
-				className: "btn-primary",
-				style: "padding: 0.875rem 1.5rem;",
-				onClick: async () => {
-					const isbn = isbnInput.value.trim().replace(/[-\s]/g, "");
-					if (isbn.length >= 10) {
-						hapticFeedback("medium");
-						await handleManualISBN(isbn);
-					} else {
-						showToast("Please enter a valid ISBN");
-					}
-				},
-			},
-			"Add Book"
-		);
-
-		manualInputWrapper.appendChild(isbnInput);
-		manualInputWrapper.appendChild(submitBtn);
-		manualEntry.appendChild(manualInputWrapper);
-		scannerCard.appendChild(manualEntry);
-
-		// Status
-		const status = createElement("div", {
-			id: "scanner-status",
-			className: "text-center text-sm",
-			style: "min-height: 1.5rem;",
-		});
-		status.innerHTML = '<span class="text-gray-500">Ready to scan</span>';
-		scannerCard.appendChild(status);
-
-		// Tips
-		const tips = createElement("div", {
-			className: "text-xs text-gray-500 text-center mt-2",
-			style: "line-height: 1.4;",
-		});
-		tips.innerHTML = `
-      <strong>💡 Tip:</strong> For best results, upload a clear photo of the barcode
-    `;
-		scannerCard.appendChild(tips);
-
-		component.appendChild(scannerCard);
-		container.appendChild(component);
-
-		fadeInUp(scannerCard);
-
-		// Function to initialize live scanner
-		async function initializeLiveScanner() {
-			try {
-				console.log("[BarcodeScanner] Initializing scanner...");
-				// Get the actual video container element (not the wrapper)
-				const videoElement = document.getElementById("scanner-video-container");
-
-				if (!videoElement) {
-					console.error("[BarcodeScanner] Video container not found!");
-					throw new Error("Video container not found");
-				}
-
-				console.log("[BarcodeScanner] Video container found:", videoElement);
-
-				await initScanner(
-					videoElement,
-					handleBarcodeDetected,
-					handleScannerError
-				);
-
-				scannerActive = true;
-				status.innerHTML = '<span class="text-success">✓ Ready to scan</span>';
-				appState.set("scannerActive", true);
-				console.log("[BarcodeScanner] Scanner ready!");
-			} catch (error) {
-				// initScanner already reported the error via handleScannerError.
-				console.error("[BarcodeScanner] Initialization error:", error);
-				videoContainer.style.display = "none";
-				instructions.style.display = "none";
-				toggleLiveScanner.textContent = "📹 Use live scanner instead";
-			}
-		}
-
-		// Don't initialize scanner by default - let user choose upload or live scan
-	}
-
-	/**
-	 * Hide scanner
-	 */
-	async function hide() {
-		if (scannerActive) {
-			stopScanner();
-			scannerActive = false;
-			appState.set("scannerActive", false);
-		}
-
-		if (scanTimeout) {
-			clearTimeout(scanTimeout);
-			scanTimeout = null;
-		}
-
-		const scannerCard = component.querySelector(".card");
-		if (scannerCard) {
-			await fadeOutDown(scannerCard);
-		}
-
-		component.innerHTML = "";
-
-		// Opened from the book switcher: go back to search once done
-		if (appState.get("currentView") === "scanner") {
-			appState.set("currentView", "home");
-		}
-	}
-
-	/**
-	 * Handle manual ISBN entry
-	 */
-	async function handleManualISBN(isbn) {
-		const status = document.getElementById("scanner-status");
-		if (status) {
-			status.innerHTML =
-				'<span class="text-primary">Fetching book info...</span>';
-		}
-
-		try {
-			// Fetch book metadata
-			const bookData = await fetchBookByISBN(isbn);
-
-			if (!bookData) {
-				status.innerHTML =
-					'<span class="text-error">Book not found. Please check the ISBN.</span>';
-				showToast("Book not found");
-				return;
-			}
-
-			// Add book to database
-			const savedBook = await addBook(bookData);
-			// A freshly scanned book is almost always the one being read now
-			await setActiveBook(savedBook.id);
-
-			showToast(`Added: ${savedBook.title}`);
-			status.innerHTML = `<span class="text-success">Added: ${savedBook.title}</span>`;
-
-			// Stop camera immediately
-			if (scannerActive) {
-				stopScanner();
-				scannerActive = false;
-				appState.set("scannerActive", false);
-			}
-
-			// Close scanner after 1.5 seconds
-			setTimeout(() => {
-				hide();
-				// Refresh books view if active
-				if (appState.get("currentView") === "books") {
-					if (window.refreshBooksList) window.refreshBooksList();
-				}
-			}, 1500);
-		} catch (error) {
-			console.error("Failed to fetch/save book:", error);
-			status.innerHTML =
-				'<span class="text-error">Failed to fetch book info. Try again.</span>';
-			showToast("Failed to fetch book info");
-		}
-	}
-
-	/**
-	 * Handle image upload and decode barcode from it
-	 */
-	async function handleImageUpload(file) {
-		hapticFeedback("light");
-		const statusEl = document.getElementById("scanner-status");
-		if (statusEl) {
-			statusEl.innerHTML =
-				'<span class="text-primary">🔍 Scanning image...</span>';
-		}
-
-		try {
-			const isbn = await decodeImageFile(file);
-			if (isbn) {
-				lastScannedISBN = null; // allow re-trying the same book via upload
-				await handleBarcodeDetected({ isbn });
-			} else {
-				if (statusEl) {
-					statusEl.innerHTML =
-						'<span class="text-error">❌ No ISBN barcode found</span>';
-				}
-				showToast(
-					"No barcode found. Try better lighting, hold the camera closer, or enter the ISBN manually."
-				);
-			}
-		} catch (error) {
-			console.error("[BarcodeScanner] Image upload error:", error);
-			if (statusEl) {
-				statusEl.innerHTML =
-					'<span class="text-error">❌ Error processing image</span>';
-			}
-			showToast("Error processing image. Please try again.");
-		}
-	}
-
-	/**
-	 * Handle barcode detection
-	 */
-	async function handleBarcodeDetected(result) {
-		console.log("[BarcodeScanner] Barcode detected!", result);
-		const { isbn } = result;
-
-		// Prevent duplicate scans
-		if (isbn === lastScannedISBN) {
+	const isbnForm = createElement("form", { className: "glass-panel isbn-form" });
+	const isbnInput = createElement("input", {
+		type: "text",
+		inputmode: "numeric",
+		autocomplete: "off",
+		placeholder: "ISBN (10 or 13 digits)",
+		"aria-label": "ISBN",
+	});
+	const isbnGo = createElement("button", { type: "submit", className: "glass-btn glass-btn-solid" }, "Find");
+	isbnForm.appendChild(isbnInput);
+	isbnForm.appendChild(isbnGo);
+	isbnForm.addEventListener("submit", (e) => {
+		e.preventDefault();
+		const isbn = normalizeIsbn(isbnInput.value);
+		if (!isbn) {
+			hapticFeedback("light");
+			setHint("That doesn't look like a valid ISBN", true);
 			return;
 		}
+		isbnInput.blur();
+		lookup(isbn);
+	});
 
-		lastScannedISBN = isbn;
-		hapticFeedback("heavy");
+	const fileInput = createElement("input", {
+		type: "file",
+		accept: "image/*",
+		style: "display: none;",
+		onChange: async (e) => {
+			const file = e.target.files[0];
+			e.target.value = "";
+			if (!file) return;
+			setHint("Reading barcode from photo…");
+			try {
+				const isbn = await decodeImageFile(file);
+				if (isbn) lookup(isbn);
+				else setHint("No barcode found in that photo. Try closer, with more light.", true);
+			} catch (err) {
+				console.error("[Scanner] Photo decode failed:", err);
+				setHint("Couldn't read that photo", true);
+			}
+		},
+	});
 
-		const status = document.getElementById("scanner-status");
-		if (status) {
-			status.innerHTML =
-				'<span class="text-primary">Barcode detected! Fetching book info...</span>';
+	const actions = createElement("div", { className: "scan-actions" });
+	const photoBtn = createElement("button", {
+		type: "button",
+		className: "glass-btn",
+		onClick: () => fileInput.click(),
+	});
+	photoBtn.innerHTML = `${ICON.photo}<span>Photo</span>`;
+	const typeBtn = createElement("button", {
+		type: "button",
+		className: "glass-btn",
+		onClick: () => {
+			const open = isbnForm.classList.toggle("is-open");
+			if (open) isbnInput.focus();
+		},
+	});
+	typeBtn.innerHTML = `${ICON.keyboard}<span>Type ISBN</span>`;
+	actions.appendChild(photoBtn);
+	actions.appendChild(typeBtn);
+
+	bottom.appendChild(isbnForm);
+	bottom.appendChild(actions);
+	bottom.appendChild(fileInput);
+	scanScreen.appendChild(bottom);
+
+	root.appendChild(scanScreen);
+
+	/* ---------- Result layer (lookup / confirm / missing) ---------- */
+
+	const result = createElement("div", { className: "scan-result", "aria-live": "polite" });
+	root.appendChild(result);
+
+	document.body.appendChild(root);
+	requestAnimationFrame(() => root.classList.add("is-open"));
+
+	const onKey = (e) => {
+		if (e.key === "Escape") close();
+	};
+	document.addEventListener("keydown", onKey);
+
+	/* ---------- Behaviour ---------- */
+
+	function setHint(text, isError = false) {
+		hint.textContent = text;
+		hint.classList.toggle("is-error", isError);
+	}
+
+	async function startLive() {
+		if (liveRunning || closed) return;
+		if (!navigator.mediaDevices?.getUserMedia) {
+			cameraUnavailable("This browser can't open the camera.");
+			return;
 		}
-
 		try {
-			// Fetch book metadata
-			const bookData = await fetchBookByISBN(isbn);
-
-			if (!bookData) {
-				status.innerHTML =
-					'<span class="text-error">Book not found. Try another barcode.</span>';
-				resetScanTimeout();
+			await initScanner(feed, (r) => lookup(r.isbn), () => {});
+			if (closed) {
+				stopScanner();
 				return;
 			}
+			liveRunning = true;
+			root.classList.add("is-live");
+			setHint("Point at the barcode on the back cover");
+		} catch (err) {
+			cameraUnavailable(
+				/permission/i.test(err.message)
+					? "Camera access is off. Allow it in your browser settings, or use a photo."
+					: "Couldn't start the camera. Use a photo or type the ISBN."
+			);
+		}
+	}
 
-			// Add book to database
-			const savedBook = await addBook(bookData);
-			// A freshly scanned book is almost always the one being read now
-			await setActiveBook(savedBook.id);
+	function stopLive() {
+		if (liveRunning) stopScanner();
+		liveRunning = false;
+		root.classList.remove("is-live");
+	}
 
-			showToast(`Added: ${savedBook.title}`);
-			status.innerHTML = `<span class="text-success">Added: ${savedBook.title}</span>`;
+	function cameraUnavailable(message) {
+		root.classList.add("no-camera");
+		setHint(message, true);
+	}
 
-			// Stop camera immediately
-			if (scannerActive) {
-				stopScanner();
-				scannerActive = false;
-				appState.set("scannerActive", false);
-			}
+	async function lookup(isbn) {
+		if (busy) return;
+		busy = true;
+		stopLive();
+		hapticFeedback("heavy");
+		showLoading(isbn);
 
-			// Close scanner after 1.5 seconds
-			setTimeout(() => {
-				hide();
-				// Refresh books view if active
-				if (appState.get("currentView") === "books") {
-					if (window.refreshBooksList) window.refreshBooksList();
+		try {
+			const existing = await getBookByISBN(isbn);
+			const book = existing || (await fetchBookByISBN(isbn));
+			if (closed) return;
+			if (book) showConfirm(book, Boolean(existing));
+			else showMissing(isbn);
+		} catch (err) {
+			if (closed) return;
+			showMissing(isbn, err.message);
+		}
+	}
+
+	function showResult(node) {
+		result.innerHTML = "";
+		result.appendChild(node);
+		root.classList.add("show-result");
+	}
+
+	function rescan() {
+		busy = false;
+		root.classList.remove("show-result");
+		setTimeout(() => {
+			if (!root.classList.contains("show-result")) result.innerHTML = "";
+		}, 300);
+		setHint("Point at the barcode on the back cover");
+		if (!root.classList.contains("no-camera")) startLive();
+	}
+
+	function showLoading(isbn) {
+		const box = createElement("div", { className: "result-loading" });
+		box.appendChild(createElement("div", { className: "glass-spinner", "aria-hidden": "true" }));
+		box.appendChild(createElement("p", { className: "result-loading-title" }, "Found a barcode"));
+		box.appendChild(createElement("p", { className: "result-loading-sub" }, `Looking up ${formatISBN(isbn)}…`));
+		showResult(box);
+	}
+
+	function showConfirm(book, alreadyAdded) {
+		const card = createElement("div", { className: "confirm" });
+
+		// Full-bleed cover art, with a blurred copy behind it so low-resolution
+		// covers still fill the screen gracefully.
+		const art = createElement("div", { className: "confirm-art" });
+		const blur = createElement("div", { className: "confirm-art-blur" });
+		const img = createElement("img", { className: "confirm-art-img", alt: "" });
+		const applyFallback = () => {
+			card.classList.add("no-cover");
+			img.remove();
+		};
+		if (book.coverUrl) {
+			img.addEventListener("load", () => {
+				if (img.naturalWidth <= 2) applyFallback();
+				else {
+					blur.style.backgroundImage = `url("${img.src}")`;
+					card.classList.add("cover-loaded");
 				}
-			}, 1500);
-		} catch (error) {
-			console.error("Failed to fetch/save book:", error);
-			status.innerHTML =
-				'<span class="text-error">Failed to fetch book info. Try again.</span>';
-			resetScanTimeout();
-		}
-	}
-
-	/**
-	 * Reset scan timeout to allow rescanning
-	 */
-	function resetScanTimeout() {
-		if (scanTimeout) clearTimeout(scanTimeout);
-
-		scanTimeout = setTimeout(() => {
-			lastScannedISBN = null;
-			const status = document.getElementById("scanner-status");
-			if (status) {
-				status.innerHTML = '<span class="text-success">Ready to scan</span>';
-			}
-		}, 3000);
-	}
-
-	/**
-	 * Handle scanner errors
-	 */
-	function handleScannerError(error) {
-		console.error("Scanner error:", error);
-
-		const status = document.getElementById("scanner-status");
-		if (status) {
-			status.innerHTML = `<span class="text-error">${error.message}</span>`;
-		}
-
-		showToast(error.message, "error");
-	}
-
-	/**
-	 * Show camera permission error UI
-	 */
-	function showCameraPermissionError() {
-		component.innerHTML = "";
-
-		const errorCard = createElement("div", {
-			className: "card text-center",
-		});
-
-		const icon = createElement("div", {
-			className: "text-error mb-4",
-		});
-		icon.innerHTML = `
-      <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    `;
-		errorCard.appendChild(icon);
-
-		const title = createElement(
-			"h3",
-			{
-				className: "text-lg font-semibold text-gray-900 mb-2",
-			},
-			"Camera Access Required"
-		);
-		errorCard.appendChild(title);
-
-		const message = createElement("p", {
-			className: "text-gray-600 mb-4",
-			style: "line-height: 1.6;",
-		});
-
-		// Provide iOS-specific instructions
-		const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-		const isHTTPS =
-			window.location.protocol === "https:" ||
-			window.location.hostname === "localhost";
-
-		if (!isHTTPS) {
-			message.innerHTML = `
-        <strong>HTTPS Required:</strong><br>
-        Camera access requires a secure connection (HTTPS).<br>
-        The app will only work on localhost or HTTPS domains.
-      `;
-		} else if (isIOS) {
-			message.innerHTML = `
-        <strong>On iOS Safari:</strong><br>
-        1. Tap the camera icon when prompted<br>
-        2. Or go to Settings → Safari → Camera<br>
-        3. Select "Ask" or "Allow"<br>
-        4. Reload this page and try again
-      `;
+			});
+			img.addEventListener("error", applyFallback);
+			img.src = book.coverUrl;
+			art.appendChild(blur);
+			art.appendChild(img);
 		} else {
-			message.textContent =
-				"Please allow camera access when prompted, or check your browser settings. You may need to reload the page after granting permission.";
+			card.classList.add("no-cover");
 		}
-		errorCard.appendChild(message);
+		art.appendChild(createElement("div", { className: "confirm-gradient" }));
+		card.appendChild(art);
 
-		const closeBtn = createElement(
+		const topBar = createElement("div", { className: "scan-top" });
+		const back = createElement("button", {
+			type: "button",
+			className: "glass-btn glass-icon",
+			"aria-label": "Scan again",
+			onClick: rescan,
+		});
+		back.innerHTML = ICON.back;
+		const x = createElement("button", {
+			type: "button",
+			className: "glass-btn glass-icon",
+			"aria-label": "Close scanner",
+			onClick: () => close(),
+		});
+		x.innerHTML = ICON.close;
+		topBar.appendChild(back);
+		topBar.appendChild(x);
+		card.appendChild(topBar);
+
+		const info = createElement("div", { className: "confirm-info" });
+		info.appendChild(
+			createElement(
+				"p",
+				{ className: "confirm-eyebrow" },
+				alreadyAdded ? "Already in your books" : "Is this your book?"
+			)
+		);
+		info.appendChild(createElement("h2", { className: "confirm-title" }, book.title || "Untitled"));
+		if (book.subtitle) {
+			info.appendChild(createElement("p", { className: "confirm-subtitle" }, book.subtitle));
+		}
+		info.appendChild(
+			createElement("p", { className: "confirm-author" }, book.author && book.author !== "Unknown Author" ? book.author : "Unknown author")
+		);
+
+		const meta = createElement("div", { className: "confirm-meta" });
+		const chips = [
+			book.publishYear,
+			book.publishers?.[0],
+			book.numberOfPages ? `${book.numberOfPages} pages` : null,
+			book.isbn ? `ISBN ${formatISBN(book.isbn)}` : null,
+		].filter(Boolean);
+		chips.forEach((c) => meta.appendChild(createElement("span", { className: "glass-chip" }, String(c))));
+		if (chips.length) info.appendChild(meta);
+
+		const buttons = createElement("div", { className: "confirm-actions" });
+		const again = createElement(
+			"button",
+			{ type: "button", className: "glass-btn", onClick: rescan },
+			"Scan again"
+		);
+		const yes = createElement(
 			"button",
 			{
-				className: "btn-primary",
-				onClick: () => {
-					component.innerHTML = "";
+				type: "button",
+				className: "glass-btn glass-btn-solid",
+				onClick: async () => {
+					yes.disabled = true;
+					try {
+						const saved = alreadyAdded ? book : await addBook(book);
+						await setActiveBook(saved.id);
+						hapticFeedback("medium");
+						showToast(`Now reading: ${saved.title}`, "success");
+						if (window.refreshBooksList) window.refreshBooksList();
+						if (options.onAdded) options.onAdded(saved);
+						close();
+					} catch (err) {
+						console.error("Failed to save book:", err);
+						showToast("Could not save the book", "error");
+						yes.disabled = false;
+					}
 				},
 			},
-			"Close"
+			alreadyAdded ? "Switch to this book" : "Add this book"
 		);
-		errorCard.appendChild(closeBtn);
+		buttons.appendChild(again);
+		buttons.appendChild(yes);
+		info.appendChild(buttons);
+		card.appendChild(info);
 
-		component.appendChild(errorCard);
-		container.appendChild(component);
-		fadeInUp(errorCard);
+		showResult(card);
+		setTimeout(() => yes.focus({ preventScroll: true }), 350);
 	}
 
+	function showMissing(isbn, errorMessage) {
+		const box = createElement("div", { className: "result-loading" });
+		box.appendChild(createElement("p", { className: "result-loading-title" }, errorMessage ? "Lookup failed" : "Book not found"));
+		box.appendChild(
+			createElement(
+				"p",
+				{ className: "result-loading-sub" },
+				errorMessage || `Nothing matched ISBN ${formatISBN(isbn)}. You can add it by title from the book switcher.`
+			)
+		);
+		const row = createElement("div", { className: "confirm-actions" });
+		row.appendChild(createElement("button", { type: "button", className: "glass-btn", onClick: () => close() }, "Close"));
+		row.appendChild(createElement("button", { type: "button", className: "glass-btn glass-btn-solid", onClick: rescan }, "Scan again"));
+		box.appendChild(row);
+		showResult(box);
+	}
+
+	function close() {
+		if (closed) return;
+		closed = true;
+		stopLive();
+		document.removeEventListener("keydown", onKey);
+		document.body.style.overflow = prevOverflow;
+		root.classList.remove("is-open");
+		setTimeout(() => root.remove(), 250);
+		current = null;
+	}
+
+	startLive();
+
+	current = { close };
+	return current;
+}
+
+/**
+ * Backwards-compatible wrapper used by the views.
+ */
+export function createBarcodeScanner() {
 	return {
-		show,
-		hide,
-		isActive: () => scannerActive,
+		show: (options) => openScanner(options),
+		hide: () => current?.close(),
+		isActive: () => Boolean(current),
 	};
 }

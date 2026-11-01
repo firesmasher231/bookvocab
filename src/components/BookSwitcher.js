@@ -3,6 +3,7 @@ import { appState } from '../js/state.js';
 import { getActiveBookId, setActiveBook } from '../js/activeBook.js';
 import { addBook } from '../services/db.js';
 import { searchBooksByTitle } from '../services/books.js';
+import { openScanner } from './BarcodeScanner.js';
 
 /* ------------------------------------------------------------------ */
 /* Cover helpers                                                       */
@@ -282,7 +283,7 @@ export function openBookSheet() {
       className: 'sheet-action',
       onClick: () => {
         close();
-        appState.set('currentView', 'scanner');
+        openScanner();
       },
     },
     '▥ Scan barcode'
