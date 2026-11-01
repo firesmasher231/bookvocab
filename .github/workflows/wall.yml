@@ -1,0 +1,60 @@
+name: Deploy wall to GitHub Pages
+
+# This workflow lives only on the wall branch and only runs for that branch.
+# It does not run on main, and it does not change main.
+#
+# GitHub Pages publishes a single site per repository. The deploy job is
+# therefore manual (workflow_dispatch) so a push to wall cannot replace
+# https://bookvocab.adityajoshi.cc. Run this workflow by hand when you want
+# the wall to become the published site. Until then, main stays live.
+
+on:
+  push:
+    branches: ["wall"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-wall
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/wall'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/wall'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
